@@ -23,6 +23,7 @@ app.use('/uploads', express.static(uploadDir));
 app.use(express.json());
 app.use(cors({
   origin: 'http://localhost:5173',
+ origin: 'https://your-netlify-site.netlify.app',
   credentials: true,
 }));
 
