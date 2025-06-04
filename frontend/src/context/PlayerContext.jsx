@@ -5,7 +5,7 @@ export const PlayerContext = createContext();
 
 export const PlayerContextProvider = ({ children }) => {
 //const backendUrl = 'http://localhost:4000'
-const backendUrl = import.meta.env.VITE_BACKEND_URL;
+const backendUrl = import.meta.env.VITE_BACKEND_URL + "/api/admin/get-music";
 
   const [songsData, setSongsData] = useState([]);
 
