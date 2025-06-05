@@ -4,6 +4,8 @@ import jwt from 'jsonwebtoken';
 import Admin from '../models/adminModel.js'; 
 import path from 'path';
 import musicModel from "../models/musicModel.js";
+import cloudinary from '../config/cloudinary.js'
+import fs from 'fs'
 
 
 export const register = async (req, res) => {
@@ -67,74 +69,67 @@ export const login = async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 }
+export const uploadMusic = async (req, res) => {
+  try {
+    console.log("BODY:", req.body);
+    console.log("FILES:", req.files);
 
-
-export const uploadMusic=async(req,res)=>{
-//console.log("BODY:", req.body);
-//console.log("FILES:", req.files);
-  try {  
-console.log("BODY:", req.body);
-console.log("FILES:", req.files);
-    const{title,artist}=req.body
-    if(!title||!artist){
-      return res.status(400).json({success:false,message:"all fields are required"})
+    const { title, artist } = req.body;
+    if (!title || !artist) {
+      return res.status(400).json({ success: false, message: "All fields are required" });
     }
+
     const musicFile = req.files?.music?.[0];
     const imageFile = req.files?.image?.[0];
 
-    //const musicFile=req.file;
-    //const imageFile=req.file;
-    //need to add same for the image.
-  
-    if(!musicFile){
-      return res.status(400).json({success:false,message:"no music file upload"})
+    if (!musicFile || !imageFile) {
+      return res.status(400).json({ success: false, message: "Both music and image files are required" });
     }
-    if(!imageFile){
-      return res.status(400).json({success:false,message:"image file is required"})
-    }
-    //const allowedExtensions=['.mp3','.wav','.jpg','.jpeg','.png','.webp'];
-    const musicExt=path.extname(musicFile.originalname).toLowerCase()
-    const imageExt=path.extname(imageFile.originalname).toLowerCase()
-    //if(!allowedExtensions.includes(musicExt) || !allowedExtensions.includes(!imageExt)){
-      //return res.status(400).json({success:false,message:"invalid file type. Only audio(.mp3,.wav) and image(.jpg, .jpeg, .png)files"})
-    //}
+
+    const musicExt = path.extname(musicFile.originalname).toLowerCase();
+    const imageExt = path.extname(imageFile.originalname).toLowerCase();
     const allowedAudio = ['.mp3', '.wav'];
-const allowedImages = ['.jpg', '.jpeg', '.png', '.webp'];
-if (!allowedAudio.includes(musicExt) || !allowedImages.includes(imageExt)) {
-  return res.status(400).json({
-    success: false,
-    message: "Invalid file type. Only audio (.mp3, .wav) and image (.jpg, .jpeg, .png, .webp) files allowed."
-  });
-}
+    const allowedImages = ['.jpg', '.jpeg', '.png', '.webp'];
 
-    const filePath=musicFile.path
-    const imageFilePath=imageFile.path
+    if (!allowedAudio.includes(musicExt) || !allowedImages.includes(imageExt)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid file types."
+      });
+    }
 
-const music=new musicModel({
+    // 🔼 Upload to Cloudinary
+    const musicUpload = await cloudinary.uploader.upload(musicFile.path, {
+      resource_type: 'video', // for audio files
+      folder: 'music_app/audio'
+    });
+
+    const imageUpload = await cloudinary.uploader.upload(imageFile.path, {
+      resource_type: 'image',
+      folder: 'music_app/images'
+    });
+
+    // ❌ Optional cleanup
+    fs.unlinkSync(musicFile.path);
+    fs.unlinkSync(imageFile.path);
+
+    const music = new musicModel({
       title,
-      artists:artist,
-      filePath:filePath,
-      imageFilePath
-    })
-    await music.save()
-    res.status(201).json({success:true,message:"MUSIC UPLOADED SUCCESSFULLY$",music})
+      artists: artist,
+      filePath: musicUpload.secure_url,
+      imageFilePath: imageUpload.secure_url
+    });
+
+    await music.save();
+    res.status(201).json({ success: true, message: "Music uploaded successfully!", music });
 
   } catch (error) {
-  console.error("Upload failed:", error);
-  if (error.name === 'ValidationError') {
-    return res.status(400).json({
-      success: false,
-      message: "Validation Error",
-      error: error.message,
-    });
+    console.error("Upload failed:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
-  res.status(500).json({
-    success: false,
-    message: "Internal server error",
-  });
-}
+};
 
-}
+
 export const getMusic=async(req,res)=>{
   try {
     let musics=await musicModel.find()
