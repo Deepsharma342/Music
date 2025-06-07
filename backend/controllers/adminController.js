@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import jwt from 'jsonwebtoken';
 import Admin from '../models/adminModel.js'; 
 import path from 'path';
-import musicModel from "../models/musicModel.js";
+import musicModel from '../models/musicModel.js';
 import cloudinary from '../config/cloudinary.js'
 import fs from 'fs'
 
