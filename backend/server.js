@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import connectDB from './config/mongoDB.js';
-import adminRoutes from './routes/adminRoutes.js'; // ✅ import, no require
+import adminRoutes from './routes/adminRoutes.js';
 
 // For __dirname in ESM
 const __filename = fileURLToPath(import.meta.url);
@@ -19,12 +19,19 @@ const PORT = process.env.PORT || 4000;
 // Ensure uploads folder exists
 const uploadDir = path.join(__dirname, 'uploads');
 app.use('/uploads', express.static(uploadDir));
+
 // Middlewares
 app.use(express.json());
+
+// ✅ FIXED: Proper CORS configuration
 app.use(cors({
-  origin: 'http://localhost:5173',
- origin: 'https://your-netlify-site.netlify.app',
+  origin: [
+    'http://localhost:5173',
+    'https://your-netlify-site.netlify.app'
+  ],
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 // Routes

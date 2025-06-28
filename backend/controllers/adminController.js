@@ -69,83 +69,151 @@ export const login = async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 }
+
 export const uploadMusic = async (req, res) => {
   try {
-    console.log("BODY:", req.body);
-    console.log("FILES:", req.files);
-
+    // Validate input
     const { title, artist } = req.body;
-    if (!title || !artist) {
-      return res.status(400).json({ success: false, message: "All fields are required" });
-    }
-
-    const musicFile = req.files?.music?.[0];
-    const imageFile = req.files?.image?.[0];
-
-    if (!musicFile || !imageFile) {
-      return res.status(400).json({ success: false, message: "Both music and image files are required" });
-    }
-
-    const musicExt = path.extname(musicFile.originalname).toLowerCase();
-    const imageExt = path.extname(imageFile.originalname).toLowerCase();
-    const allowedAudio = ['.mp3', '.wav'];
-    const allowedImages = ['.jpg', '.jpeg', '.png', '.webp'];
-
-    if (!allowedAudio.includes(musicExt) || !allowedImages.includes(imageExt)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid file types."
+    if (!title?.trim() || !artist?.trim()) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Title and artist are required" 
       });
     }
 
-    // 🔼 Upload to Cloudinary
-    const musicUpload = await cloudinary.uploader.upload(musicFile.path, {
-      resource_type: 'video', // for audio files
-      folder: 'music_app/audio'
+    // Validate files
+    const musicFile = req.files?.music?.[0];
+    const imageFile = req.files?.image?.[0];
+    if (!musicFile || !imageFile) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Both music and image files are required" 
+      });
+    }
+
+    // Validate file types
+    const musicExt = path.extname(musicFile.originalname).toLowerCase();
+    const imageExt = path.extname(imageFile.originalname).toLowerCase();
+    const allowedAudio = ['.mp3', '.wav', '.m4a'];
+    const allowedImages = ['.jpg', '.jpeg', '.png', '.webp'];
+    
+    if (!allowedAudio.includes(musicExt) || !allowedImages.includes(imageExt)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid file types. Audio: ${allowedAudio.join(', ')}, Images: ${allowedImages.join(', ')}`
+      });
+    }
+
+    // Validate file sizes
+    const MAX_AUDIO_SIZE = 20 * 1024 * 1024; // 20MB
+    const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
+    if (musicFile.size > MAX_AUDIO_SIZE || imageFile.size > MAX_IMAGE_SIZE) {
+      return res.status(413).json({
+        success: false,
+        message: `File too large. Max ${MAX_AUDIO_SIZE/1024/1024}MB for audio, ${MAX_IMAGE_SIZE/1024/1024}MB for images`
+      });
+    }
+
+    // Upload to Cloudinary
+    const [musicUpload, imageUpload] = await Promise.all([
+      cloudinary.uploader.upload(musicFile.path, {
+        resource_type: 'video',
+        folder: 'music_app/audio',
+        upload_preset: 'audio_preset' // Create this in Cloudinary settings
+      }),
+      cloudinary.uploader.upload(imageFile.path, {
+        folder: 'music_app/images',
+        upload_preset: 'image_preset'
+      })
+    ]);
+
+    // Create database record
+    const music = await musicModel.create({
+      title: title.trim(),
+      artist: artist.trim(),
+      audioUrl: musicUpload.secure_url,
+      imageUrl: imageUpload.secure_url,
+      cloudinaryId: {
+        audio: musicUpload.public_id,
+        image: imageUpload.public_id
+      }
     });
 
-    const imageUpload = await cloudinary.uploader.upload(imageFile.path, {
-      resource_type: 'image',
-      folder: 'music_app/images'
+    // Cleanup temp files
+    try {
+      fs.unlinkSync(musicFile.path);
+      fs.unlinkSync(imageFile.path);
+    } catch (cleanupErr) {
+      console.warn('File cleanup failed:', cleanupErr);
+    }
+
+    // Success response
+    res.status(201).json({
+      success: true,
+      message: "Upload successful",
+      music: {
+        id: music._id,
+        title: music.title,
+        artist: music.artist,
+        audioUrl: music.audioUrl,
+        imageUrl: music.imageUrl
+      }
     });
-
-    // ❌ Optional cleanup
-    fs.unlinkSync(musicFile.path);
-    fs.unlinkSync(imageFile.path);
-
-    const music = new musicModel({
-      title,
-      artists: artist,
-      filePath: musicUpload.secure_url,
-      imageFilePath: imageUpload.secure_url
-    });
-
-    await music.save();
-    res.status(201).json({ success: true, message: "Music uploaded successfully!", music });
 
   } catch (error) {
-    console.error("Upload failed:", error);
-    res.status(500).json({ success: false, message: "Internal server error" });
+    console.error("Upload error:", error);
+    
+    // Specific error for Cloudinary failures
+    if (error.message.includes('Cloudinary')) {
+      return res.status(502).json({ 
+        success: false, 
+        message: "File storage service unavailable" 
+      });
+    }
+
+    res.status(500).json({ 
+      success: false, 
+      message: "Internal server error",
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 };
 
-
-export const getMusic=async(req,res)=>{
+export const getMusic = async (req, res) => {
   try {
-    let musics=await musicModel.find()
-    if(!musics||musics.length===0){
-      return res.json({success:false,message:"no songs found"})
+    // Use .lean() for better performance and to get plain JS objects
+    let musics = await musicModel.find().lean();
+    
+    if (!musics || musics.length === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "No songs found" 
+      });
     }
-    musics = musics.map(music => ({
-      ...music._doc, // important to extract the actual fields from Mongoose
-      filePath: music.filePath.replace(/\\/g, "/") // convert backslashes to forward slashes
-    }));
-    res.json({success:true,musics})
+
+    // Safely transform file paths
+    const transformedMusics = musics.map(music => {
+      const result = { ...music };
+      if (music.filePath) {
+        result.filePath = music.filePath.replace(/\\/g, "/");
+      }
+      return result;
+    });
+
+    return res.json({ 
+      success: true, 
+      musics: transformedMusics 
+    });
   } catch (error) {
-    console.log(error)
-    res.status(500).json({success:false,message:'internal server error'})
+    console.error('Error in getMusic:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Internal server error',
+      error: error.message // Include for debugging
+    });
   }
 }
+
 export const deleteMusic=async (req,res) => {
   try {
     const {id} =req.params;
