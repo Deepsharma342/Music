@@ -26,3 +26,5 @@ dist-ssr
 # Ignore env file
 .env
 /uploads
+node_modules/
+
