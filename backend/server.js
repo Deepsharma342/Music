@@ -27,7 +27,8 @@ app.use(express.json());
 app.use(cors({
   origin: [
     'http://localhost:5173',
-    'https://music-frontend123.netlify.app'
+    'https://music-frontend123.netlify.app',
+    'https://music-2tui.onrender.com'
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
