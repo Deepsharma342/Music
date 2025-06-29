@@ -7,7 +7,9 @@ import {
   deleteMusic
 } from '../controllers/adminController.js';
 
-import upload from '../middleware/multer.js';
+
+import upload, { handleUpload } from '../middleware/multer.js';
+
 
 const adminRouter = express.Router();
 
@@ -16,10 +18,11 @@ adminRouter.post('/login', login);
 
 adminRouter.post(
   '/add-music',
-  upload.fields([
-    { name: 'music', maxCount: 1 },
-    { name: 'image', maxCount: 1 }
-  ]),
+  //upload.fields([
+    //{ name: 'music', maxCount: 1 },
+    //{ name: 'image', maxCount: 1 }
+  //]),
+  handleUpload,
   uploadMusic
 );
 
