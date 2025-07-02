@@ -70,112 +70,76 @@ export const login = async (req, res) => {
   }
 }
 
-
-
 export const uploadMusic = async (req, res) => {
-  // Validate request has files
-  if (!req.files || !req.files.music || !req.files.image) {
-    return res.status(400).json({
-      success: false,
-      message: "Please upload both music and image files"
-    });
-  }
-
-  const { title, artist } = req.body;
-  const musicFile = req.files.music[0];
-  const imageFile = req.files.image[0];
-
-  // Enhanced logging
-  console.log('📥 Upload Request Received:', {
-    title,
-    artist,
-    musicFile: {
-      name: musicFile.originalname,
-      size: musicFile.size,
-      path: musicFile.path
-    },
-    imageFile: {
-      name: imageFile.originalname,
-      size: imageFile.size,
-      path: imageFile.path
-    }
-  });
-
-  // Validate input
-  if (!title?.trim() || !artist?.trim()) {
-    return res.status(400).json({ 
-      success: false, 
-      message: "Title and artist are required" 
-    });
-  }
-
-  // Validate file types
-  const allowedAudio = ['.mp3', '.wav', '.m4a', '.ogg'];
-  const allowedImages = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
-  const musicExt = path.extname(musicFile.originalname).toLowerCase();
-  const imageExt = path.extname(imageFile.originalname).toLowerCase();
-
-  if (!allowedAudio.includes(musicExt)) {
-    return res.status(400).json({
-      success: false,
-      message: `Invalid audio format. Allowed: ${allowedAudio.join(', ')}`,
-      received: musicExt
-    });
-  }
-
-  if (!allowedImages.includes(imageExt)) {
-    return res.status(400).json({
-      success: false,
-      message: `Invalid image format. Allowed: ${allowedImages.join(', ')}`,
-      received: imageExt
-    });
-  }
-
-  // Validate file sizes
-  const MAX_AUDIO_SIZE = 20 * 1024 * 1024; // 20MB
-  const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
-
-  if (musicFile.size > MAX_AUDIO_SIZE) {
-    return res.status(413).json({
-      success: false,
-      message: `Audio file too large. Max ${MAX_AUDIO_SIZE/1024/1024}MB allowed`,
-      size: `${(musicFile.size/1024/1024).toFixed(2)}MB`
-    });
-  }
-
-  if (imageFile.size > MAX_IMAGE_SIZE) {
-    return res.status(413).json({
-      success: false,
-      message: `Image file too large. Max ${MAX_IMAGE_SIZE/1024/1024}MB allowed`,
-      size: `${(imageFile.size/1024/1024).toFixed(2)}MB`
-    });
-  }
-
   try {
-    // Upload files to Cloudinary in parallel
+    console.log('🚀 Upload started');
+    console.log('📁 Files:', req.files ? 'Present' : 'Missing');
+    console.log('📝 Body:', req.body);
+    
+    // Validate files exist
+    if (!req.files || !req.files.music || !req.files.image) {
+      console.log('❌ Files validation failed');
+      return res.status(400).json({
+        success: false,
+        message: 'Both music and image files are required'
+      });
+    }
+
+    const { title, artist } = req.body;
+    const musicFile = req.files.music[0];
+    const imageFile = req.files.image[0];
+
+    // Validate required fields
+    if (!title?.trim() || !artist?.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Title and artist are required'
+      });
+    }
+
+    // Validate file extensions
+    const allowedAudio = ['.mp3', '.wav', '.m4a', '.ogg'];
+    const allowedImages = ['.jpg', '.jpeg', '.png', '.webp'];
+
+    const musicExt = path.extname(musicFile.originalname).toLowerCase();
+    const imageExt = path.extname(imageFile.originalname).toLowerCase();
+
+    if (!allowedAudio.includes(musicExt)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid audio format: ${musicExt}. Allowed: ${allowedAudio.join(', ')}`
+      });
+    }
+
+    if (!allowedImages.includes(imageExt)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid image format: ${imageExt}. Allowed: ${allowedImages.join(', ')}`
+      });
+    }
+
+    // Upload files to Cloudinary
+    console.log('☁️ Starting Cloudinary upload');
+    console.log('🔑 Cloudinary config:', {
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+      api_key: !!process.env.CLOUDINARY_API_KEY,
+      api_secret: !!process.env.CLOUDINARY_API_SECRET
+    });
+    
     const [musicUpload, imageUpload] = await Promise.all([
       cloudinary.uploader.upload(musicFile.path, {
-        resource_type: 'video', // For audio files
-        folder: 'music_app/audio',
-        overwrite: false,
-        unique_filename: true,
-        chunk_size: 6000000 // 6MB chunks for large files
+        resource_type: 'video',
+        folder: 'music_app/audio'
       }),
       cloudinary.uploader.upload(imageFile.path, {
-        folder: 'music_app/images',
-        transformation: [
-          { width: 500, height: 500, crop: 'limit' },
-          { quality: 'auto' }
-        ]
+        folder: 'music_app/images'
       })
     ]);
+    
+    console.log('✅ Cloudinary upload complete');
 
-    console.log('☁️ Cloudinary Upload Results:', {
-      music: musicUpload.secure_url,
-      image: imageUpload.secure_url
-    });
-
-    // Create database record
+    // Save to database
+    console.log('💾 Saving to database');
     const newSong = await musicModel.create({
       title: title.trim(),
       artist: artist.trim(),
@@ -185,67 +149,56 @@ export const uploadMusic = async (req, res) => {
         audio: musicUpload.public_id,
         image: imageUpload.public_id
       },
-      duration: musicUpload.duration, // If available
+      duration: musicUpload.duration || null,
       format: musicUpload.format
     });
+    
+    console.log('✅ Database save complete');
 
-    // Cleanup temp files
-    try {
-      fs.unlinkSync(musicFile.path);
-      fs.unlinkSync(imageFile.path);
-      console.log('🧹 Temporary files cleaned up');
-    } catch (cleanupErr) {
-      console.warn('⚠️ File cleanup failed:', cleanupErr);
-    }
+    // Clean up temporary files
+    fs.unlinkSync(musicFile.path);
+    fs.unlinkSync(imageFile.path);
 
-    // Success response
     return res.status(201).json({
       success: true,
-      message: "Song uploaded successfully",
+      message: 'Song uploaded successfully',
       data: {
         id: newSong._id,
         title: newSong.title,
         artist: newSong.artist,
         audioUrl: newSong.audioUrl,
-        imageUrl: newSong.imageUrl,
-        duration: newSong.duration
+        imageUrl: newSong.imageUrl
       }
     });
 
   } catch (error) {
-    console.error('❌ Upload Error:', error);
-
-    // Cleanup temp files if error occurred
+    console.error('🔥 DETAILED ERROR:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
+    
+    // Clean up files if they exist and upload failed
     try {
-      if (musicFile?.path) fs.unlinkSync(musicFile.path);
-      if (imageFile?.path) fs.unlinkSync(imageFile.path);
-    } catch (cleanupErr) {
-      console.warn('⚠️ Error cleanup failed:', cleanupErr);
+      if (req.files?.music?.[0]?.path) {
+        fs.unlinkSync(req.files.music[0].path);
+      }
+      if (req.files?.image?.[0]?.path) {
+        fs.unlinkSync(req.files.image[0].path);
+      }
+    } catch (cleanupError) {
+      // Files might not exist, ignore cleanup errors
     }
 
-    // Handle specific Cloudinary errors
-    if (error.message.includes('File size too large')) {
-      return res.status(413).json({
-        success: false,
-        message: "File exceeds Cloudinary size limits"
-      });
-    }
-
-    if (error.http_code === 401) {
-      return res.status(500).json({
-        success: false,
-        message: "Cloudinary authentication failed. Check API credentials"
-      });
-    }
-
-    // Generic error response
     return res.status(500).json({
       success: false,
-      message: "Internal server error during upload",
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: 'Internal server error during upload',
+      error: error.message,
+      details: error.stack
     });
   }
 };
+
 
 export const getMusic = async (req, res) => {
   try {
