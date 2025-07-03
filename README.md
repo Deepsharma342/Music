@@ -23,3 +23,4 @@ npm run dev
 6.Frontend runs on http://localhost:5173 (Vite default).
 
 Backend runs on http://localhost:3000 (or your custom port).
+link of this project is https://music-frontend123.netlify.app/
